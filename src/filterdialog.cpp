@@ -264,6 +264,12 @@ void FilterDialog::updateTimeBounds()
     updateEnabledState();
 }
 
+void FilterDialog::refreshTheme()
+{
+    updateLevelLabels();
+    update();
+}
+
 void FilterDialog::updateLevelLabels()
 {
     const lv::Theme &th = lv::theme();

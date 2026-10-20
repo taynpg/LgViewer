@@ -414,9 +414,20 @@ void paintGlyph(Icon id, QPainter *painter, const QColor &color, int px)
     painter->restore();
 }
 
-QIcon icon(Icon id)
+namespace {
+
+// 图标颜色取自调色板，切换控件风格后需要整体重绘
+QHash<int, QIcon> &iconCache()
 {
     static QHash<int, QIcon> cache;
+    return cache;
+}
+
+} // namespace
+
+QIcon icon(Icon id)
+{
+    QHash<int, QIcon> &cache = iconCache();
     const int key = int(id);
     auto it = cache.find(key);
     if (it != cache.end())
@@ -427,6 +438,11 @@ QIcon icon(Icon id)
         ic.addPixmap(renderPixmap(id, px));
     cache.insert(key, ic);
     return ic;
+}
+
+void clearIconCache()
+{
+    iconCache().clear();
 }
 
 } // namespace lv

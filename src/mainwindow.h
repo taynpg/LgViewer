@@ -10,6 +10,7 @@
 class LogView;
 class FilterDialog;
 class FindBar;
+class QAction;
 class QComboBox;
 class QLabel;
 class QProgressBar;
@@ -69,6 +70,10 @@ private:
     void findPrev();
     void gotoHit(int index, bool scroll);
 
+    // 切换控件风格（Windows 原生 / Fusion）后重刷所有依赖主题颜色的部件
+    void setWindowsStyle(bool on);
+    void refreshThemedUi();
+
     void changeEncoding(int comboIndex);
     void editProfile();
     void newProfile();
@@ -106,6 +111,7 @@ private:
     QVector<PatternProfile> m_profiles;
     int  m_currentProfile = 0;
     bool m_suppressSignals = false;
+    QAction *m_winStyleAction = nullptr;
     QString m_shotPath;
     bool    m_shotFilter = false;
     bool    m_shotPrompt = false;

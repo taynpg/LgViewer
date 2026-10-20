@@ -23,6 +23,8 @@ public:
     FilterSpec currentSpec() const;
     void resetFilters();
     void focusKeyword();
+    // 主题 / 控件风格变化后按新配色重刷等级文字
+    void refreshTheme();
 
 signals:
     void filterChanged(const FilterSpec &spec);

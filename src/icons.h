@@ -41,5 +41,7 @@ enum class Icon {
 QIcon icon(Icon id);
 // 单个图标按指定颜色绘制，供需要同色系组合的场景复用
 void   paintGlyph(Icon id, QPainter *painter, const QColor &color, int px);
+// 调色板变化（切换控件风格 / 深浅色）后清掉缓存，下次 icon() 按新颜色重绘
+void   clearIconCache();
 
 } // namespace lv

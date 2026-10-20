@@ -313,6 +313,23 @@ void MainWindow::buildMenus()
         m_view->scrollToRow(qMax(0, m_doc->rowCount() - 1), true);
     });
 
+    // 控件风格：Qt 自带的 Windows 原生风格 ↔ Fusion 跨平台风格
+    viewMenu->addSeparator();
+    const QString winKey = lv::windowsStyleKey();
+    m_winStyleAction = viewMenu->addAction(QStringLiteral("使用 Windows 原生控件风格"));
+    m_winStyleAction->setCheckable(true);
+    if (winKey.isEmpty()) {
+        m_winStyleAction->setEnabled(false);
+        m_winStyleAction->setToolTip(QStringLiteral("当前平台没有 Qt 自带的 Windows 控件风格"));
+    } else {
+        m_winStyleAction->setToolTip(
+            QStringLiteral("勾选：Qt 的「%1」风格，用系统原生控件外观；"
+                           "取消：Fusion 跨平台风格").arg(winKey));
+    }
+    m_winStyleAction->setChecked(
+        !winKey.isEmpty() && lv::currentUiStyle().compare(winKey, Qt::CaseInsensitive) == 0);
+    connect(m_winStyleAction, &QAction::toggled, this, &MainWindow::setWindowsStyle);
+
     QMenu *toolMenu = menuBar()->addMenu(QStringLiteral("工具(&T)"));
     QAction *actTester = toolMenu->addAction(lv::icon(lv::Icon::Regex), QStringLiteral("正则表达式测试器…"));
     actTester->setShortcut(QKeySequence(QStringLiteral("Ctrl+T")));
@@ -1053,6 +1070,34 @@ void MainWindow::gotoLine()
 void MainWindow::zoomFont(int delta)
 {
     m_view->setFontPointSize(m_view->fontPointSize() + delta);
+}
+
+void MainWindow::setWindowsStyle(bool on)
+{
+    const QString winKey = lv::windowsStyleKey();
+    const QString key = (on && !winKey.isEmpty()) ? winKey : lv::fusionStyleKey();
+
+    if (!lv::applyUiStyle(key) && on) {
+        // 平台没有 Windows 风格：把勾去掉（会再次进到这里，这次走 Fusion 分支）
+        if (m_winStyleAction)
+            m_winStyleAction->setChecked(false);
+        return;
+    }
+
+    QSettings().setValue(QStringLiteral("view/uiStyle"),
+                         on ? QStringLiteral("windows") : QStringLiteral("fusion"));
+    refreshThemedUi();
+    statusBar()->showMessage(
+        QStringLiteral("控件风格：%1").arg(on ? winKey : lv::fusionStyleKey()), 2000);
+}
+
+void MainWindow::refreshThemedUi()
+{
+    // 视图的行缓存里存了具体颜色，主题重建后必须整体重建
+    m_view->invalidateAll();
+    m_findBar->refreshStyle();
+    m_filterDlg->refreshTheme();
+    update();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

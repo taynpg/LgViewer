@@ -182,6 +182,12 @@ void FindBar::setWholeWord(bool on)
     m_word->setChecked(on);
 }
 
+void FindBar::refreshStyle()
+{
+    applyStyle();
+    update();
+}
+
 void FindBar::showIdle()
 {
     m_count->setText(QString());

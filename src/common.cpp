@@ -1,9 +1,12 @@
 #include "common.h"
 
+#include <QApplication>
 #include <QFontDatabase>
 #include <QFontInfo>
 #include <QGuiApplication>
 #include <QPalette>
+#include <QStyle>
+#include <QStyleFactory>
 
 namespace lv {
 
@@ -345,6 +348,65 @@ void refreshTheme()
         dark = app->palette().color(QPalette::Window).lightness() < 128;
     // 重建静态对象
     const_cast<Theme &>(theme()) = buildTheme(dark);
+}
+
+// ---------------------------------------------------------------------------
+// 控件风格
+// ---------------------------------------------------------------------------
+namespace {
+
+QString findStyleKey(const QStringList &wanted)
+{
+    const QStringList keys = QStyleFactory::keys();
+    for (const QString &want : wanted) {
+        for (const QString &k : keys) {
+            if (k.compare(want, Qt::CaseInsensitive) == 0)
+                return k;
+        }
+    }
+    return QString();
+}
+
+} // namespace
+
+QString windowsStyleKey()
+{
+    // "Windows" 是经典 Win32 原生控件；windows11 是 Qt 6.8+ 的 Fluent 实现
+    return findStyleKey({QStringLiteral("Windows"), QStringLiteral("windows11"),
+                         QStringLiteral("windowsvista")});
+}
+
+QString fusionStyleKey()
+{
+    const QString k = findStyleKey({QStringLiteral("Fusion")});
+    return k.isEmpty() ? QStringLiteral("Fusion") : k;
+}
+
+bool applyUiStyle(const QString &key)
+{
+    auto *app = qobject_cast<QApplication *>(QCoreApplication::instance());
+    if (!app)
+        return false;
+
+    QStyle *style = QStyleFactory::create(key);
+    bool ok = style != nullptr;
+    if (!style)
+        style = QStyleFactory::create(fusionStyleKey());
+    if (!style)
+        return false;
+
+    app->setStyle(style); // 旧 style 由 QApplication 接管释放
+    refreshTheme();
+    return ok;
+}
+
+QString currentUiStyle()
+{
+    if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance())) {
+        if (QStyle *s = app->style())
+            return s->objectName();
+    }
+    return QString();
 }
 
 } // namespace lv

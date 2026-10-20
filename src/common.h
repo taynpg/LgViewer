@@ -67,6 +67,18 @@ const Theme &theme();
 void         refreshTheme();
 QString      monospaceFamily();
 
+// ---------------------------------------------------------------------------
+// 控件风格（QStyle）
+// ---------------------------------------------------------------------------
+// 平台上的原生 Windows 风格键名（"Windows" / "windows11" / "windowsvista"），
+// 非 Windows 平台返回空串。偏好顺序即返回值顺序。
+QString windowsStyleKey();
+QString fusionStyleKey();
+// 切换 QApplication 的控件风格并重建主题；失败时退回 Fusion 并返回 false
+bool    applyUiStyle(const QString &key);
+// 当前生效的风格键名（QStyle::objectName）
+QString currentUiStyle();
+
 // UTF-8 字节偏移 -> QString 里的字符下标（代理对按 2 个单元计）
 int utf8ByteToCharIndex(const char *s, int byteOffset);
 

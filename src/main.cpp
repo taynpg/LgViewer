@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QLocale>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QStyleFactory>
 #include <QTimer>
@@ -41,11 +42,23 @@ int main(int argc, char *argv[])
 
     QLocale::setDefault(QLocale::system());
 
-    // 用 Fusion 保证三个平台的观感一致，同时保留系统配色
-    if (QStyleFactory::keys().contains(QStringLiteral("Fusion"), Qt::CaseInsensitive))
-        app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
-
-    lv::refreshTheme();
+    // 控件风格：默认 Fusion（三平台观感一致），可在「视图」菜单切到 Windows 原生风格
+    QString styleKey = lv::fusionStyleKey();
+    QString stylePref = QSettings().value(QStringLiteral("view/uiStyle"),
+                                          QStringLiteral("fusion")).toString();
+    // 自检：--uistyle=windows|fusion 临时覆盖已保存的偏好
+    for (const QString &a : app.arguments()) {
+        if (a.startsWith(QStringLiteral("--uistyle=")))
+            stylePref = a.mid(10);
+    }
+    if (stylePref.compare(QStringLiteral("windows"), Qt::CaseInsensitive) == 0) {
+        const QString winKey = lv::windowsStyleKey();
+        if (!winKey.isEmpty())
+            styleKey = winKey;
+    }
+    lv::applyUiStyle(styleKey); // 内部会重建主题配色
+    std::fprintf(stderr, "[style] requested=%s applied=%s\n",
+                 qPrintable(stylePref), qPrintable(lv::currentUiStyle()));
 
     MainWindow window;
     window.show();

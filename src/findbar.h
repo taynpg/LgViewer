@@ -22,6 +22,8 @@ public:
     bool    wholeWord() const;
     void    setCaseSensitive(bool on);
     void    setWholeWord(bool on);
+    // 主题 / 控件风格变了之后按新配色重刷样式
+    void    refreshStyle();
 
     // 状态提示
     void showIdle();
