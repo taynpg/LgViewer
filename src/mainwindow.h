@@ -7,13 +7,20 @@
 
 #include <memory>
 
+class DropOverlay;
 class LogView;
 class FilterDialog;
 class FindBar;
 class QAction;
 class QComboBox;
+class QDragEnterEvent;
+class QDragLeaveEvent;
+class QDragMoveEvent;
+class QDropEvent;
 class QLabel;
+class QMimeData;
 class QProgressBar;
+class QResizeEvent;
 
 class MainWindow : public QMainWindow
 {
@@ -36,9 +43,18 @@ public:
     void setShotPromptDialog(bool enabled);
     void setShotFind(const QString &query, bool wholeWord, bool caseSensitive);
     void setScrollCheck(bool enabled);
+    // 自检用：模拟"文件拖到窗口上"的提示层，配合 --shot 出图
+    void setShotDropHint(const QString &path);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+
+    // 拖拽文件到窗口打开
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void buildUi();
@@ -49,6 +65,13 @@ private:
 
     void openFileDialog();
     void reloadFile();
+
+    // 拖拽打开
+    QStringList localFilesFrom(const QMimeData *mime) const;
+    void openDroppedFiles(const QStringList &files);
+    void showDropHint(const QStringList &files);
+    void hideDropHint();
+    void placeDropHint();
 
     void applyFilterFromPanel(const FilterSpec &spec);
     void onLoadFinished(bool ok, const QString &message);
@@ -88,6 +111,7 @@ private:
     LogView      *m_view = nullptr;
     FilterDialog *m_filterDlg = nullptr;
     FindBar      *m_findBar = nullptr;
+    DropOverlay  *m_dropHint = nullptr;
     QComboBox    *m_profileCombo = nullptr;
     QComboBox    *m_encodingCombo = nullptr;
     QLabel       *m_statusFile = nullptr;
@@ -118,6 +142,7 @@ private:
     QString m_shotFind;
     bool    m_shotFindWhole = false;
     bool    m_shotFindCase = false;
+    QString m_shotDropHint;
     bool    m_scrollCheck = false;
     bool    m_bench = false;
     bool    m_benchFilter = false;

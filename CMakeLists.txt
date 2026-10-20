@@ -63,6 +63,8 @@ set(PROJECT_SOURCES
     src/filterdialog.cpp
     src/findbar.h
     src/findbar.cpp
+    src/dropzone.h
+    src/dropzone.cpp
     src/regexhelpdialog.h
     src/regexhelpdialog.cpp
     src/regexpromptdialog.h

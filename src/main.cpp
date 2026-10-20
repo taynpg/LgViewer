@@ -92,6 +92,8 @@ int main(int argc, char *argv[])
             window.setShotFind(a.mid(11), false, true);
         else if (a.startsWith(QStringLiteral("--find=")))
             window.setShotFind(a.mid(7), false, false);
+        else if (a.startsWith(QStringLiteral("--drop=")))
+            window.setShotDropHint(a.mid(7));
         else if (QFileInfo::exists(a))
             fileToOpen = a;
     }

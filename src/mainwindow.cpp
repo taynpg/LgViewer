@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include "common.h"
+#include "dropzone.h"
 #include "filterdialog.h"
 #include "findbar.h"
 #include "icons.h"
@@ -15,6 +16,10 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
@@ -22,12 +27,15 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QProgressBar>
+#include <QResizeEvent>
 #include <QSet>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -87,6 +95,12 @@ MainWindow::MainWindow(QWidget *parent)
     loadProfiles();
 
     m_view->setDocument(m_doc);
+
+    // 拖拽打开：把文件从资源管理器拖到窗口任意位置
+    setAcceptDrops(true);
+    m_dropHint = new DropOverlay(this);
+    m_dropHint->hide();
+
     resize(1400, 860);
     updateStatus();
     m_progress->hide();
@@ -451,6 +465,121 @@ void MainWindow::reloadFile()
     m_doc->openFile(m_doc->filePath(), TextEncoding(m_encodingCombo->currentData().toInt()));
 }
 
+// ---------------------------------------------------------------------------
+// 拖拽文件到窗口打开
+// ---------------------------------------------------------------------------
+QStringList MainWindow::localFilesFrom(const QMimeData *mime) const
+{
+    QStringList files;
+    if (!mime || !mime->hasUrls())
+        return files;
+    const QList<QUrl> urls = mime->urls();
+    for (const QUrl &u : urls) {
+        if (!u.isLocalFile())
+            continue;
+        const QString path = u.toLocalFile();
+        if (QFileInfo(path).isFile())
+            files.append(path);
+    }
+    return files;
+}
+
+void MainWindow::showDropHint(const QStringList &files)
+{
+    if (!m_dropHint || files.isEmpty())
+        return;
+    placeDropHint();
+    m_dropHint->showFiles(files, m_doc->filePath());
+    m_dropHint->show();
+    m_dropHint->raise();
+}
+
+void MainWindow::hideDropHint()
+{
+    if (m_dropHint)
+        m_dropHint->clear();
+}
+
+void MainWindow::placeDropHint()
+{
+    if (m_dropHint)
+        m_dropHint->setGeometry(rect());
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    const QStringList files = localFilesFrom(event->mimeData());
+    if (files.isEmpty()) {
+        if (event->mimeData()->hasUrls())
+            statusBar()->showMessage(QStringLiteral("只能拖入本地文件（暂不支持文件夹）"), 4000);
+        event->ignore();
+        return;
+    }
+    showDropHint(files);
+    event->acceptProposedAction();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (localFilesFrom(event->mimeData()).isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    Q_UNUSED(event)
+    hideDropHint();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    hideDropHint();
+
+    const QStringList files = localFilesFrom(event->mimeData());
+    if (files.isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+
+    raise();
+    activateWindow();
+    openDroppedFiles(files);
+}
+
+void MainWindow::openDroppedFiles(const QStringList &files)
+{
+    if (files.isEmpty())
+        return;
+
+    const QString path = files.first();
+    const QString name = QFileInfo(path).fileName();
+    const bool same = !m_doc->filePath().isEmpty()
+            && QFileInfo(m_doc->filePath()).absoluteFilePath() == QFileInfo(path).absoluteFilePath();
+
+    if (same) {
+        reloadFile(); // 拖入的正是当前文件：原地刷新，保留滚动位置
+    } else {
+        openPath(path);
+        setFocus(Qt::OtherFocusReason);
+    }
+
+    QString msg = same ? QStringLiteral("已重新加载 %1") : QStringLiteral("已打开 %1");
+    msg = msg.arg(name);
+    if (files.size() > 1)
+        msg += QStringLiteral("，忽略另外 %1 个文件").arg(files.size() - 1);
+    statusBar()->showMessage(msg, 4000);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    placeDropHint();
+}
+
 void MainWindow::changeEncoding(int index)
 {
     if (m_suppressSignals || index < 0)
@@ -690,7 +819,15 @@ void MainWindow::onLoadFinished(bool ok, const QString &message)
             return;
         }
         m_shotPath.clear();
-        if (!m_shotFind.isEmpty()) {
+        if (!m_shotDropHint.isEmpty()) {
+            // 自检：画出"拖拽文件进来"的提示层
+            const QString target = m_shotDropHint;
+            QTimer::singleShot(150, this, [this, target] { showDropHint(QStringList{target}); });
+            QTimer::singleShot(650, this, [this, path] {
+                grab().save(path);
+                QCoreApplication::quit();
+            });
+        } else if (!m_shotFind.isEmpty()) {
             QTimer::singleShot(1500, this, [this, path] {
                 grab().save(path);
                 QCoreApplication::quit();
@@ -741,6 +878,11 @@ void MainWindow::setShotFind(const QString &query, bool wholeWord, bool caseSens
 void MainWindow::setScrollCheck(bool enabled)
 {
     m_scrollCheck = enabled;
+}
+
+void MainWindow::setShotDropHint(const QString &path)
+{
+    m_shotDropHint = path;
 }
 
 // 自检：滚到中间 → 切换配置 → 打印切换前后视口首行，确认位置没有跳回开头

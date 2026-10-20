@@ -52,6 +52,8 @@ FindBar::FindBar(QWidget *parent)
         QStringLiteral("在日志中查找（Enter 下一个，Shift+Enter 上一个，Esc 关闭）"));
     m_edit->setClearButtonEnabled(true);
     m_edit->setMinimumWidth(240);
+    // 拖文件进来时别把路径插进输入框，交给主窗口打开文件
+    m_edit->setAcceptDrops(false);
     m_edit->installEventFilter(this);
     lay->addWidget(m_edit, 1);
 
