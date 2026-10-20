@@ -61,12 +61,12 @@ int main(int argc, char *argv[])
                  qPrintable(stylePref), qPrintable(lv::currentUiStyle()));
 
     MainWindow window;
-    window.show();
 
     QString fileToOpen;
     int profileIndex = 0;
     bool openTester = false;
     bool openQtAbout = false;
+    bool printRecent = false;
     const QStringList args = app.arguments();
     for (int i = 1; i < args.size(); ++i) {
         const QString a = args.at(i);
@@ -94,9 +94,27 @@ int main(int argc, char *argv[])
             window.setShotFind(a.mid(7), false, false);
         else if (a.startsWith(QStringLiteral("--drop=")))
             window.setShotDropHint(a.mid(7));
+        else if (a == QStringLiteral("--shotrecent"))
+            window.setShotRecentMenu(true);
+        else if (a == QStringLiteral("--exit-after-load"))
+            window.setExitAfterLoad(true);
+        else if (a == QStringLiteral("--recentlist"))
+            printRecent = true;
         else if (QFileInfo::exists(a))
             fileToOpen = a;
     }
+
+    // 自检：打印持久化的"最近打开"列表后退出
+    if (printRecent) {
+        const QStringList recent = window.recentFiles();
+        std::fprintf(stderr, "[recent] count=%d\n", int(recent.size()));
+        for (const QString &p : recent)
+            std::fprintf(stderr, "[recent] %s\n", p.toLocal8Bit().constData());
+        std::fflush(stderr);
+        return 0;
+    }
+
+    window.show();
     if (profileIndex > 0)
         window.selectProfile(profileIndex);
     if (!fileToOpen.isEmpty())

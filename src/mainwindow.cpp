@@ -16,15 +16,18 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHash>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLocale>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
@@ -46,6 +49,9 @@
 
 namespace {
 
+// 「最近打开」保留的条数
+constexpr int kMaxRecentFiles = 10;
+
 QString humanSize(qint64 bytes)
 {
     if (bytes < 1024)
@@ -63,6 +69,9 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     m_doc = new LogDocument(this);
+
+    // 先读最近打开记录，buildMenus 里要用它填菜单
+    loadRecentFiles();
 
     // 筛选项在独立窗口里，主界面只留日志视图
     m_filterDlg = new FilterDialog(this);
@@ -219,6 +228,11 @@ void MainWindow::buildMenus()
         m_activeSpec = FilterSpec();
         updateStatus();
     });
+
+    fileMenu->addSeparator();
+    m_recentMenu = fileMenu->addMenu(QStringLiteral("最近打开(&R)"));
+    m_recentMenu->setToolTipsVisible(true);
+    rebuildRecentMenu();
 
     fileMenu->addSeparator();
     QAction *actQuit = fileMenu->addAction(lv::icon(lv::Icon::Quit), QStringLiteral("退出"));
@@ -440,13 +454,136 @@ void MainWindow::restoreScrollPosition()
         m_restoreLine = -1;
 }
 
+// ---------------------------------------------------------------------------
+// 最近打开的文件
+// ---------------------------------------------------------------------------
+void MainWindow::loadRecentFiles()
+{
+    QSettings settings;
+    const QStringList saved = settings.value(QStringLiteral("recent/files")).toStringList();
+
+    QStringList cleaned;
+    for (const QString &p : saved) {
+        if (p.isEmpty())
+            continue;
+        const QString abs = QFileInfo(p).absoluteFilePath();
+        if (!cleaned.contains(abs))
+            cleaned.append(abs);
+        if (cleaned.size() >= kMaxRecentFiles)
+            break;
+    }
+    m_recentFiles = cleaned;
+}
+
+void MainWindow::addRecentFile(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+
+    const QString abs = QFileInfo(path).absoluteFilePath();
+    m_recentFiles.removeAll(abs);
+    m_recentFiles.prepend(abs);
+    while (m_recentFiles.size() > kMaxRecentFiles)
+        m_recentFiles.removeLast();
+
+    QSettings().setValue(QStringLiteral("recent/files"), m_recentFiles);
+    rebuildRecentMenu();
+}
+
+void MainWindow::rebuildRecentMenu()
+{
+    if (!m_recentMenu)
+        return;
+
+    m_recentMenu->clear();
+
+    // 同名的文件补上父目录名，免得列表里两个 sample.log 分不清
+    QHash<QString, int> nameCount;
+    for (const QString &p : m_recentFiles)
+        ++nameCount[QFileInfo(p).fileName()];
+
+    for (int i = 0; i < m_recentFiles.size(); ++i) {
+        const QString path = m_recentFiles.at(i);
+        const QFileInfo fi(path);
+
+        QString text = fi.fileName();
+        if (nameCount.value(fi.fileName()) > 1)
+            text += QStringLiteral("  —  ") + fi.dir().dirName();
+
+        if (i < 9)
+            text = QStringLiteral("&%1  %2").arg(i + 1).arg(text);
+        else
+            text = QStringLiteral("%1  %2").arg(i + 1).arg(text);
+
+        QAction *act = m_recentMenu->addAction(text);
+        act->setToolTip(QDir::toNativeSeparators(path));
+        act->setStatusTip(QDir::toNativeSeparators(path));
+        if (i < 9)
+            act->setShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)));
+        connect(act, &QAction::triggered, this, [this, path] { openRecentFile(path); });
+    }
+
+    if (m_recentFiles.isEmpty()) {
+        QAction *none = m_recentMenu->addAction(QStringLiteral("（暂无记录）"));
+        none->setEnabled(false);
+    }
+
+    m_recentMenu->addSeparator();
+    QAction *actClear = m_recentMenu->addAction(QStringLiteral("清除最近记录"));
+    actClear->setEnabled(!m_recentFiles.isEmpty());
+    connect(actClear, &QAction::triggered, this, [this] {
+        m_recentFiles.clear();
+        QSettings().setValue(QStringLiteral("recent/files"), m_recentFiles);
+        rebuildRecentMenu();
+    });
+}
+
+void MainWindow::openRecentFile(const QString &path)
+{
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isFile()) {
+        QMessageBox::warning(this, QStringLiteral("文件不存在"),
+                             QStringLiteral("找不到文件：\n%1\n\n该记录已从最近列表中移除。")
+                                 .arg(QDir::toNativeSeparators(path)));
+        m_recentFiles.removeAll(path);
+        QSettings().setValue(QStringLiteral("recent/files"), m_recentFiles);
+        rebuildRecentMenu();
+        return;
+    }
+
+    if (!m_doc->filePath().isEmpty()
+        && QFileInfo(m_doc->filePath()).absoluteFilePath() == fi.absoluteFilePath()) {
+        reloadFile();
+        return;
+    }
+    openPath(path);
+}
+
+QString MainWindow::lastOpenDir() const
+{
+    // 最近一次打开的文件所在目录（跳过已被删掉的记录）
+    for (const QString &p : m_recentFiles) {
+        const QFileInfo fi(p);
+        if (fi.exists())
+            return fi.absolutePath();
+    }
+
+    const QString last = QSettings().value(QStringLiteral("recent/lastDir")).toString();
+    if (!last.isEmpty() && QFileInfo(last).isDir())
+        return last;
+
+    return QDir::homePath();
+}
+
 void MainWindow::openFileDialog()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, QStringLiteral("打开日志文件"), QString(),
+        this, QStringLiteral("打开日志文件"), lastOpenDir(),
         QStringLiteral("日志文件 (*.txt *.log *.log.*);;所有文件 (*.*)"));
-    if (!path.isEmpty())
-        openPath(path);
+    if (path.isEmpty())
+        return;
+    QSettings().setValue(QStringLiteral("recent/lastDir"), QFileInfo(path).absolutePath());
+    openPath(path);
 }
 
 void MainWindow::openPath(const QString &path)
@@ -763,6 +900,9 @@ void MainWindow::onLoadFinished(bool ok, const QString &message)
     if (m_restoreLine < 0)
         m_view->scrollToRow(0);
 
+    // 记进"最近打开"（重载也会把它顶到最前）
+    addRecentFile(m_doc->filePath());
+
     m_suppressSignals = true;
     // 显示实际识别到的编码
     const int enc = int(m_doc->encoding());
@@ -775,6 +915,28 @@ void MainWindow::onLoadFinished(bool ok, const QString &message)
     m_reloading = false;
     restoreScrollPosition();
     updateStatus();
+
+    if (m_exitAfterLoad) {
+        m_exitAfterLoad = false;
+        QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+        return;
+    }
+
+    if (m_shotRecent) {
+        m_shotRecent = false;
+        const QString path = m_shotPath;
+        m_shotPath.clear();
+        QTimer::singleShot(200, this, [this] {
+            const QRect bar = menuBar()->geometry();
+            m_recentMenu->popup(mapToGlobal(QPoint(bar.left() + 12, bar.bottom() + 2)));
+        });
+        QTimer::singleShot(700, this, [this, path] {
+            if (!path.isEmpty())
+                m_recentMenu->grab().save(path);
+            QCoreApplication::quit();
+        });
+        return;
+    }
 
     if (m_scrollCheck) {
         m_scrollCheck = false;
@@ -883,6 +1045,16 @@ void MainWindow::setScrollCheck(bool enabled)
 void MainWindow::setShotDropHint(const QString &path)
 {
     m_shotDropHint = path;
+}
+
+void MainWindow::setExitAfterLoad(bool enabled)
+{
+    m_exitAfterLoad = enabled;
+}
+
+void MainWindow::setShotRecentMenu(bool enabled)
+{
+    m_shotRecent = enabled;
 }
 
 // 自检：滚到中间 → 切换配置 → 打印切换前后视口首行，确认位置没有跳回开头

@@ -3,6 +3,7 @@
 #include "logdocument.h"
 
 #include <QMainWindow>
+#include <QStringList>
 #include <QVector>
 
 #include <memory>
@@ -19,6 +20,7 @@ class QDragMoveEvent;
 class QDropEvent;
 class QLabel;
 class QMimeData;
+class QMenu;
 class QProgressBar;
 class QResizeEvent;
 
@@ -45,6 +47,12 @@ public:
     void setScrollCheck(bool enabled);
     // 自检用：模拟"文件拖到窗口上"的提示层，配合 --shot 出图
     void setShotDropHint(const QString &path);
+    // 自检用：加载完就退出（批量验证最近打开列表）
+    void setExitAfterLoad(bool enabled);
+    // 自检用：弹出"最近打开"菜单并截图（配合 --shot）
+    void setShotRecentMenu(bool enabled);
+    // 自检用：读取当前持久化的最近打开列表
+    QStringList recentFiles() const { return m_recentFiles; }
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -65,6 +73,13 @@ private:
 
     void openFileDialog();
     void reloadFile();
+
+    // 最近打开的文件（最多 10 个，存 QSettings）
+    void loadRecentFiles();
+    void addRecentFile(const QString &path);
+    void rebuildRecentMenu();
+    void openRecentFile(const QString &path);
+    QString lastOpenDir() const;
 
     // 拖拽打开
     QStringList localFilesFrom(const QMimeData *mime) const;
@@ -119,6 +134,8 @@ private:
     QLabel       *m_statusFilter = nullptr;
     QLabel       *m_statusPerf = nullptr;
     QProgressBar *m_progress = nullptr;
+    QMenu        *m_recentMenu = nullptr;
+    QStringList   m_recentFiles;
 
     FilterSpec m_activeSpec;
 
@@ -143,6 +160,8 @@ private:
     bool    m_shotFindWhole = false;
     bool    m_shotFindCase = false;
     QString m_shotDropHint;
+    bool    m_exitAfterLoad = false;
+    bool    m_shotRecent = false;
     bool    m_scrollCheck = false;
     bool    m_bench = false;
     bool    m_benchFilter = false;
