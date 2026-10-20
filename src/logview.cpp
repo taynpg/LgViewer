@@ -98,6 +98,8 @@ void LogView::setDocument(LogDocument *doc)
     m_compiledPattern.clear();
     m_selAnchor = -1;
     m_selCurrent = -1;
+    m_hits.reset();
+    m_activeHit = -1;
     m_hScroll = 0;
     horizontalScrollBar()->setValue(0);
     updateMetrics();
@@ -179,6 +181,34 @@ void LogView::setHighlightPattern(const QString &text, bool isRegex, bool caseSe
 void LogView::clearHighlight()
 {
     setHighlightPattern(QString(), false, false);
+}
+
+void LogView::setSearchHits(std::shared_ptr<const QVector<SearchHit>> hits)
+{
+    if (m_hits == hits)
+        return;
+    m_hits = std::move(hits);
+    m_activeHit = -1;
+    m_cache.clear();
+    viewport()->update();
+}
+
+void LogView::setActiveHit(int index)
+{
+    if (index == m_activeHit)
+        return;
+    const int old = m_activeHit;
+    m_activeHit = index;
+
+    // 只作废受影响的两行，其余行的布局缓存继续留着
+    auto drop = [this](int idx) {
+        if (!m_hits || idx < 0 || idx >= int(m_hits->size()))
+            return;
+        m_cache.erase(int(m_hits->at(idx).row));
+    };
+    drop(old);
+    drop(index);
+    viewport()->update();
 }
 
 void LogView::setLevelKeywordColored(bool on)
@@ -352,6 +382,23 @@ void LogView::buildRow(int row, RowCache &rc)
         }
     }
 
+    // 搜索命中（放在最后追加，背景色盖住上面的级别/筛选着色）
+    if (m_hits && !m_hits->isEmpty()) {
+        const quint32 rowKey = quint32(row);
+        auto it = std::lower_bound(m_hits->begin(), m_hits->end(), rowKey,
+                                   [](const SearchHit &h, quint32 r) { return h.row < r; });
+        int hitIndex = int(it - m_hits->begin());
+        for (; it != m_hits->end() && it->row == rowKey; ++it, ++hitIndex) {
+            const int a = byteToCharIndex(p, int(it->startByte));
+            const int b = byteToCharIndex(p, int(it->endByte));
+            const bool active = hitIndex == m_activeHit;
+            addRange(a, b - a,
+                     active ? th.activeMatchText : th.searchText,
+                     active ? th.activeMatchBg : th.searchBg,
+                     active);
+        }
+    }
+
     QTextOption opt;
     opt.setWrapMode(QTextOption::NoWrap);
     opt.setTabStopDistance(m_fm.horizontalAdvance(QLatin1Char(' ')) * 4.0);
@@ -395,6 +442,10 @@ void LogView::paintEvent(QPaintEvent *event)
     int selLast = -1;
     selectionRange(&selFirst, &selLast);
 
+    int activeRow = -1;
+    if (m_hits && m_activeHit >= 0 && m_activeHit < int(m_hits->size()))
+        activeRow = int(m_hits->at(m_activeHit).row);
+
     int maxWidth = 0;
     int y = 0;
     int row = first;
@@ -419,6 +470,10 @@ void LogView::paintEvent(QPaintEvent *event)
 
         // 等级色条
         p.fillRect(m_gutterWidth - 3, y, 3, m_rowHeight, levelFg);
+
+        // 当前搜索命中所在行，在行号栏左侧再压一条橙色标记
+        if (row == activeRow)
+            p.fillRect(m_gutterWidth - 8, y, 4, m_rowHeight, th.activeMatchBg);
 
         // 行号
         p.setPen(row == m_selCurrent ? th.gutterActive : th.gutterText);
@@ -559,6 +614,13 @@ int LogView::firstVisibleLine() const
     if (row < 0 || row >= m_doc->rowCount())
         return -1;
     return int(m_doc->rowLine(row));
+}
+
+int LogView::firstVisibleRow() const
+{
+    if (!m_doc || m_doc->rowCount() == 0)
+        return -1;
+    return qBound(0, verticalScrollBar()->value(), m_doc->rowCount() - 1);
 }
 
 void LogView::scrollToLineAtTop(int line)

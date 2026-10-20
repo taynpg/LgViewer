@@ -53,8 +53,12 @@ struct Theme {
     QColor border;
     QColor selBg;
     QColor selText;
-    QColor matchBg;
+    QColor matchBg;      // 筛选关键字高亮（琥珀色）
     QColor matchText;
+    QColor searchBg;     // 搜索命中（蓝色，与筛选高亮区分）
+    QColor searchText;
+    QColor activeMatchBg; // 当前聚焦的那一处命中（橙色）
+    QColor activeMatchText;
     QColor tagTime;
     QFont  mono;
 };

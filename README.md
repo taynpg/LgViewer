@@ -12,6 +12,7 @@
 | 正则配置日志结构 | 命名捕获组约定（`time` / `level` / `msg` / `loc` / `tid`），内置 7 个常用配置，JSON 持久化，可增删改 |
 | 等级颜色高亮 | INFO / DEBUG / WARN / ERROR / FATAL / TRACE 全套配色，大小写不敏感、支持中文等级与单字母缩写；源码位置灰色弱化 |
 | 时间 / 等级 / 关键字筛选 | 时间范围（自动识别日志跨度，支持跨天回绕）、等级复选框、关键字（子串 / 正则 / 仅高亮），全部后台执行可取消 |
+| 全文查找 | Ctrl+F 底部查找栏：区分大小写 / 全字匹配开关、命中计数「3 / 128」、F3 / Shift+F3 或 Enter / Shift+Enter 上下跳转、当前命中橙色高亮 + 行号栏标记。后台线程扫描（133 MB 搜 10 万处命中约 0.1s），结果跟随当前筛选 |
 | 编码识别 | BOM → UTF-8 严格校验 → GB18030 结构校验 → UTF-16 启发式，可手动强制 |
 | 正则测试器 | Ctrl+T 实时匹配 + 分组结果表 + 样本高亮 + JIT 状态，可一键应用为当前配置 |
 | 正则语法速查 | F1 打开 PCRE2 语法速查（贪婪、环视、命名组、日志常用片段、常见坑） |
@@ -19,9 +20,9 @@
 
 ## 截图
 
-| 筛选弹窗 | 正则测试器 |
-|---|---|
-| ![筛选弹窗](docs/screenshots/filter-dialog.png) | ![正则测试器](docs/screenshots/regex-tester.png) |
+| 筛选弹窗 | 查找栏 | 正则测试器 |
+|---|---|---|
+| ![筛选弹窗](docs/screenshots/filter-dialog.png) | ![查找栏](docs/screenshots/find-bar.png) | ![正则测试器](docs/screenshots/regex-tester.png) |
 
 ## 下载与运行
 
@@ -83,7 +84,8 @@ python tools/PackBuild.py --mark=release --clean --pack --yes   # 无人值守
 | 操作 | 快捷键 |
 |---|---|
 | 打开 / 重新加载 / 关闭文件 | Ctrl+O / F5 / — |
-| 筛选条件（时间/等级/关键字） | Ctrl+F，清除 Ctrl+Shift+F |
+| 查找 | Ctrl+F，下一个 / 上一个 F3 / Shift+F3（输入框内 Enter / Shift+Enter 同效），Esc 关闭 |
+| 筛选条件（时间/等级/关键字） | Ctrl+Shift+F，清除 Ctrl+Alt+F |
 | 正则测试器 / 语法速查 / 正则编写介绍 | Ctrl+T / F1 / Ctrl+Shift+R |
 | 跳到行 / 回到开头 / 跳到末尾 | Ctrl+L / Ctrl+Home / Ctrl+End |
 | 字号缩放 / 复制选中行 / 全选 | Ctrl+滚轮 / Ctrl+C / Ctrl+A |

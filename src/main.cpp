@@ -73,6 +73,12 @@ int main(int argc, char *argv[])
             window.setScrollCheck(true);
         else if (a.startsWith(QStringLiteral("--profile=")))
             profileIndex = a.mid(10).toInt();
+        else if (a.startsWith(QStringLiteral("--findword=")))
+            window.setShotFind(a.mid(11), true, false);
+        else if (a.startsWith(QStringLiteral("--findcase=")))
+            window.setShotFind(a.mid(11), false, true);
+        else if (a.startsWith(QStringLiteral("--find=")))
+            window.setShotFind(a.mid(7), false, false);
         else if (QFileInfo::exists(a))
             fileToOpen = a;
     }

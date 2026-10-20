@@ -7,6 +7,7 @@
 #include <QDate>
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 #include <atomic>
 #include <memory>
@@ -37,6 +38,14 @@ struct FilterSpec {
     bool isIdentity() const;
 };
 
+// 一处搜索命中。row 是「当前可见行」下标（有筛选时只搜可见行），
+// startByte/endByte 是该行内的 UTF-8 字节偏移，绘制时再换算成字符下标。
+struct SearchHit {
+    quint32 row = 0;
+    quint32 startByte = 0;
+    quint32 endByte = 0;
+};
+
 struct LogData;
 
 class LogDocument : public QObject
@@ -55,6 +64,15 @@ public:
 
     void applyFilter(const FilterSpec &spec);
     const FilterSpec &filter() const { return m_filter; }
+
+    // 全文查找（字面量）。空串等于清空结果；结果按 row 升序排列。
+    void setSearchQuery(const QString &needle, bool caseSensitive, bool wholeWord);
+    void clearSearch() { setSearchQuery(QString(), false, false); }
+    std::shared_ptr<const QVector<SearchHit>> searchHits() const { return m_hits; }
+    QString searchQuery() const { return m_searchText; }
+    bool    searchPending() const { return m_searching; }
+    bool    searchTruncated() const { return m_searchTruncated; }
+    double  searchSeconds() const { return m_searchSeconds; }
 
     bool isLoading() const { return m_loading; }
     bool isLoaded() const { return m_data != nullptr; }
@@ -88,10 +106,18 @@ signals:
     void loadProgress(int percent, const QString &stage);
     void loadFinished(bool ok, const QString &message);
     void filterChanged();
+    // 搜索结果就绪（含被清空的情况）
+    void searchChanged();
 
 private:
     void runLoad(quint64 generation, QString path, TextEncoding encoding, PatternProfile profile);
     void runFilter(quint64 generation, std::shared_ptr<LogData> data, FilterSpec spec);
+    void runSearch(quint64 generation, std::shared_ptr<LogData> data,
+                   std::shared_ptr<const std::vector<quint32>> visible,
+                   QByteArray needle, bool caseSensitive, bool wholeWord);
+    void cancelSearch();
+    // 可见行集合变了（首次加载、换配置、改筛选）之后按当前条件重跑一次
+    void refreshSearch();
     void cancelWorkers();
     void publishLoadFailure(quint64 generation, const QString &message);
     bool readAndSplit(const std::shared_ptr<LogData> &data, const QString &path,
@@ -112,11 +138,24 @@ private:
 
     double m_filterSeconds = 0.0;
 
+    // 搜索状态
+    std::shared_ptr<const QVector<SearchHit>> m_hits;
+    QString m_searchText;
+    bool    m_searchCase = false;
+    bool    m_searchWord = false;
+    bool    m_searching = false;
+    bool    m_searchTruncated = false;
+    bool    m_searchPendingRefresh = false;
+    double  m_searchSeconds = 0.0;
+
     std::atomic<quint64> m_generation{0};
     std::atomic<quint64> m_filterGeneration{0};
+    std::atomic<quint64> m_searchGeneration{0};
     std::atomic<bool>    m_cancelLoad{false};
     std::atomic<bool>    m_cancelFilter{false};
+    std::atomic<bool>    m_cancelSearch{false};
 
     std::thread m_loadThread;
     std::thread m_filterThread;
+    std::thread m_searchThread;
 };

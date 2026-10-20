@@ -30,6 +30,11 @@ public:
     void setHighlightPattern(const QString &text, bool isRegex, bool caseSensitive);
     void clearHighlight();
 
+    // 搜索命中：普通命中铺蓝色底，当前命中铺橙色底并在行号栏加标记
+    void setSearchHits(std::shared_ptr<const QVector<SearchHit>> hits);
+    void setActiveHit(int index);
+    int  activeHit() const { return m_activeHit; }
+
     // 着色开关
     void setLevelKeywordColored(bool on);   // 等级关键字（[Info]）本身着色
     void setMessageLevelColored(bool on);   // 消息正文也用等级色（与关键字同色）
@@ -42,6 +47,8 @@ public:
     void scrollToLine(int line, bool center = false);
     // 当前视口第一行对应的原始行号；恢复位置用
     int  firstVisibleLine() const;
+    // 当前视口第一行的可见行下标；搜索定位用
+    int  firstVisibleRow() const;
     // 把指定行顶到视口第一行（不改选中）；该行被过滤掉时取其后最近的一条
     void scrollToLineAtTop(int line);
     int  currentRow() const { return m_selCurrent; }
@@ -107,6 +114,10 @@ private:
     bool        m_hlRegex = false;
     bool        m_hlCase = false;
     QByteArray  m_hlNeedle;
+
+    // 搜索命中
+    std::shared_ptr<const QVector<SearchHit>> m_hits;
+    int m_activeHit = -1;
 
     bool m_hlLevelKeyword = true;
     bool m_hlMessageLevel = false;

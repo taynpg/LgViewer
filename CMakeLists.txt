@@ -61,6 +61,8 @@ set(PROJECT_SOURCES
     src/logview.cpp
     src/filterdialog.h
     src/filterdialog.cpp
+    src/findbar.h
+    src/findbar.cpp
     src/regexhelpdialog.h
     src/regexhelpdialog.cpp
     src/regexpromptdialog.h

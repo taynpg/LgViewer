@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "filterdialog.h"
+#include "findbar.h"
 #include "icons.h"
 #include "logview.h"
 #include "profiledialog.h"
@@ -29,6 +30,7 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cstdio>
 
 #define PCRE2_CODE_UNIT_WIDTH 8
@@ -53,8 +55,6 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     m_doc = new LogDocument(this);
-    m_view = new LogView(this);
-    setCentralWidget(m_view);
 
     // 筛选项在独立窗口里，主界面只留日志视图
     m_filterDlg = new FilterDialog(this);
@@ -67,14 +67,22 @@ MainWindow::MainWindow(QWidget *parent)
         m_reloading = true;
         m_progress->show();
         m_progress->setValue(0);
+        if (m_findBar->isVisible() && !m_findBar->text().isEmpty())
+            m_findBar->showPending();
     });
     connect(m_doc, &LogDocument::loadProgress, this, &MainWindow::onLoadProgress);
     connect(m_doc, &LogDocument::loadFinished, this, &MainWindow::onLoadFinished);
     connect(m_doc, &LogDocument::filterChanged, this, &MainWindow::onFilterChanged);
+    connect(m_doc, &LogDocument::searchChanged, this, &MainWindow::onSearchChanged);
     connect(m_filterDlg, &FilterDialog::filterChanged, this, &MainWindow::applyFilterFromPanel);
     connect(m_view, &LogView::fontPointSizeChanged, this, [this](int pt) {
         statusBar()->showMessage(QStringLiteral("字号 %1").arg(pt), 1500);
     });
+
+    connect(m_findBar, &FindBar::queryChanged, this, &MainWindow::runSearch);
+    connect(m_findBar, &FindBar::goNext, this, &MainWindow::findNext);
+    connect(m_findBar, &FindBar::goPrev, this, &MainWindow::findPrev);
+    connect(m_findBar, &FindBar::closed, this, &MainWindow::closeFind);
 
     loadProfiles();
 
@@ -88,6 +96,21 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::buildUi()
 {
+    // 中央区域：日志视图 + 底部查找栏（查找栏默认隐藏，不占高度）
+    auto *central = new QWidget(this);
+    auto *centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+
+    m_view = new LogView(central);
+    centralLayout->addWidget(m_view, 1);
+
+    m_findBar = new FindBar(central);
+    m_findBar->hide();
+    centralLayout->addWidget(m_findBar, 0);
+
+    setCentralWidget(central);
+
     auto *toolbar = addToolBar(QStringLiteral("主工具栏"));
     toolbar->setObjectName(QStringLiteral("mainToolBar"));
     toolbar->setMovable(false);
@@ -97,10 +120,12 @@ void MainWindow::buildUi()
     QAction *reloadAction = toolbar->addAction(lv::icon(lv::Icon::Reload), QStringLiteral("重新加载"));
     reloadAction->setToolTip(QStringLiteral("重新加载 (F5)"));
     toolbar->addSeparator();
+    QAction *findAction = toolbar->addAction(lv::icon(lv::Icon::Find), QStringLiteral("查找"));
+    findAction->setToolTip(QStringLiteral("在日志中查找 (Ctrl+F)"));
     QAction *filterAction = toolbar->addAction(lv::icon(lv::Icon::Filter), QStringLiteral("筛选"));
-    filterAction->setToolTip(QStringLiteral("筛选条件 (Ctrl+F)"));
+    filterAction->setToolTip(QStringLiteral("筛选条件 (Ctrl+Shift+F)"));
     QAction *clearFilterAction = toolbar->addAction(lv::icon(lv::Icon::ClearFilter), QStringLiteral("清除筛选"));
-    clearFilterAction->setToolTip(QStringLiteral("清除所有筛选条件 (Ctrl+Shift+F)"));
+    clearFilterAction->setToolTip(QStringLiteral("清除所有筛选条件 (Ctrl+Alt+F)"));
     toolbar->addSeparator();
 
     toolbar->addWidget(new QLabel(QStringLiteral(" 编码 ")));
@@ -131,6 +156,7 @@ void MainWindow::buildUi()
     // 重新绑定带快捷键的动作
     connect(openAction, &QAction::triggered, this, &MainWindow::openFileDialog);
     connect(reloadAction, &QAction::triggered, this, &MainWindow::reloadFile);
+    connect(findAction, &QAction::triggered, this, [this] { showFind(); });
     connect(filterAction, &QAction::triggered, this, [this] { showFilterDialog(); });
     connect(clearFilterAction, &QAction::triggered, this, &MainWindow::clearFilters);
     connect(editAction, &QAction::triggered, this, &MainWindow::editProfile);
@@ -172,6 +198,7 @@ void MainWindow::buildMenus()
 
     QAction *actClose = fileMenu->addAction(lv::icon(lv::Icon::CloseFile), QStringLiteral("关闭文件"));
     connect(actClose, &QAction::triggered, this, [this] {
+        closeFind();
         m_doc->closeFile();
         m_filterDlg->setDocument(nullptr);
         m_view->setDocument(m_doc);
@@ -194,12 +221,29 @@ void MainWindow::buildMenus()
     connect(actSelectAll, &QAction::triggered, this, [this] { m_view->selectAll(); });
 
     editMenu->addSeparator();
-    QAction *actFind = editMenu->addAction(lv::icon(lv::Icon::Filter), QStringLiteral("筛选条件…"));
+    QAction *actFind = editMenu->addAction(lv::icon(lv::Icon::Find), QStringLiteral("查找…"));
     actFind->setShortcut(QKeySequence::Find);
-    connect(actFind, &QAction::triggered, this, [this] { showFilterDialog(); });
+    actFind->setToolTip(QStringLiteral("在日志中查找文本 (Ctrl+F)"));
+    connect(actFind, &QAction::triggered, this, [this] { showFind(); });
+
+    QAction *actFindNext = editMenu->addAction(lv::icon(lv::Icon::ArrowDown),
+                                               QStringLiteral("查找下一个"));
+    actFindNext->setShortcut(QKeySequence(Qt::Key_F3));
+    connect(actFindNext, &QAction::triggered, this, &MainWindow::findNext);
+
+    QAction *actFindPrev = editMenu->addAction(lv::icon(lv::Icon::ArrowUp),
+                                               QStringLiteral("查找上一个"));
+    actFindPrev->setShortcut(QKeySequence(QStringLiteral("Shift+F3")));
+    connect(actFindPrev, &QAction::triggered, this, &MainWindow::findPrev);
+
+    editMenu->addSeparator();
+    QAction *actFilter = editMenu->addAction(lv::icon(lv::Icon::Filter),
+                                             QStringLiteral("筛选条件…"));
+    actFilter->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    connect(actFilter, &QAction::triggered, this, [this] { showFilterDialog(); });
 
     QAction *actClearFilter = editMenu->addAction(lv::icon(lv::Icon::ClearFilter), QStringLiteral("清除筛选"));
-    actClearFilter->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+    actClearFilter->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+F")));
     connect(actClearFilter, &QAction::triggered, this, &MainWindow::clearFilters);
 
     QAction *actGoto = editMenu->addAction(lv::icon(lv::Icon::GotoLine), QStringLiteral("跳到行…"));
@@ -434,6 +478,122 @@ void MainWindow::clearFilters()
     m_filterDlg->resetFilters();
 }
 
+// ---------------------------------------------------------------------------
+// 查找
+// ---------------------------------------------------------------------------
+void MainWindow::showFind()
+{
+    if (!m_doc->isLoaded()) {
+        statusBar()->showMessage(QStringLiteral("先打开一个日志文件再查找"), 2000);
+        return;
+    }
+    m_findBar->activate();
+    m_findBar->raise();
+}
+
+void MainWindow::closeFind()
+{
+    m_findBar->hide();
+    m_doc->clearSearch();
+    m_hits.reset();
+    m_hitIndex = -1;
+    m_view->setSearchHits(nullptr);
+    m_view->setActiveHit(-1);
+    m_view->setFocus();
+}
+
+void MainWindow::runSearch()
+{
+    m_hitIndex = -1;
+
+    if (m_findBar->text().isEmpty()) {
+        m_doc->clearSearch();
+        m_hits.reset();
+        m_view->setSearchHits(nullptr);
+        m_view->setActiveHit(-1);
+        m_findBar->showIdle();
+        return;
+    }
+
+    m_findBar->showPending();
+    m_doc->setSearchQuery(m_findBar->text(), m_findBar->caseSensitive(),
+                          m_findBar->wholeWord());
+}
+
+void MainWindow::onSearchChanged()
+{
+    m_hits = m_doc->searchHits();
+    m_hitIndex = -1;
+    m_view->setActiveHit(-1);
+    m_view->setSearchHits(m_hits);
+
+    const int total = m_hits ? int(m_hits->size()) : 0;
+    if (total == 0) {
+        m_findBar->showNoMatch();
+    } else {
+        m_findBar->showCount(total, m_doc->searchTruncated());
+        if (m_findBar->isVisible()) {
+            // 从当前视口往下找第一处命中，避免输入时视图乱跳到文件开头
+            const int row = qMax(0, m_view->firstVisibleRow());
+            const auto it = std::lower_bound(m_hits->begin(), m_hits->end(), quint32(row),
+                                             [](const SearchHit &h, quint32 r) { return h.row < r; });
+            int index = int(it - m_hits->begin());
+            if (index >= total)
+                index = 0;
+            gotoHit(index, true);
+        }
+    }
+
+    if (!m_shotFind.isEmpty()) {
+        std::fprintf(stderr, "[find] query=\"%s\" total=%d truncated=%d took=%.3fs firstRow=%d\n",
+                     qPrintable(m_doc->searchQuery()), total, int(m_doc->searchTruncated()),
+                     m_doc->searchSeconds(),
+                     total > 0 ? int(m_hits->first().row) : -1);
+        std::fflush(stderr);
+    }
+}
+
+void MainWindow::gotoHit(int index, bool scroll)
+{
+    if (!m_hits || m_hits->isEmpty())
+        return;
+
+    const int n = int(m_hits->size());
+    index = ((index % n) + n) % n;
+    m_hitIndex = index;
+
+    const SearchHit &hit = m_hits->at(index);
+    m_view->setActiveHit(index);
+    if (scroll) {
+        const int line = int(m_doc->rowLine(int(hit.row)));
+        m_view->scrollToLine(line, true);
+    }
+    m_findBar->showPosition(index + 1, n, m_doc->searchTruncated());
+}
+
+void MainWindow::findNext()
+{
+    if (!m_findBar->isVisible())
+        m_findBar->activate();
+    if (!m_hits || m_hits->isEmpty()) {
+        runSearch();
+        return;
+    }
+    gotoHit(m_hitIndex < 0 ? 0 : m_hitIndex + 1, true);
+}
+
+void MainWindow::findPrev()
+{
+    if (!m_findBar->isVisible())
+        m_findBar->activate();
+    if (!m_hits || m_hits->isEmpty()) {
+        runSearch();
+        return;
+    }
+    const int n = int(m_hits->size());
+    gotoHit(m_hitIndex <= 0 ? n - 1 : m_hitIndex - 1, true);
+}
+
 void MainWindow::onLoadProgress(int percent, const QString &stage)
 {
     m_progress->setVisible(true);
@@ -495,6 +655,17 @@ void MainWindow::onLoadFinished(bool ok, const QString &message)
         m_doc->applyFilter(f);
     }
 
+    // 自检：--find= 打开查找栏并搜索（配合 --shot 出图）
+    if (!m_shotFind.isEmpty()) {
+        const QString query = m_shotFind;
+        m_findBar->setWholeWord(m_shotFindWhole);
+        m_findBar->setCaseSensitive(m_shotFindCase);
+        QTimer::singleShot(150, this, [this, query] {
+            showFind();
+            m_findBar->activate(query);
+        });
+    }
+
     if (!m_shotPath.isEmpty()) {
         const QString path = m_shotPath;
         if (m_shotPrompt) {
@@ -502,7 +673,12 @@ void MainWindow::onLoadFinished(bool ok, const QString &message)
             return;
         }
         m_shotPath.clear();
-        if (m_shotFilter) {
+        if (!m_shotFind.isEmpty()) {
+            QTimer::singleShot(1500, this, [this, path] {
+                grab().save(path);
+                QCoreApplication::quit();
+            });
+        } else if (m_shotFilter) {
             m_filterDlg->setDocument(m_doc);
             m_filterDlg->show();
             QTimer::singleShot(600, this, [this, path] {
@@ -536,6 +712,13 @@ void MainWindow::setShotFilterDialog(bool enabled)
 void MainWindow::setShotPromptDialog(bool enabled)
 {
     m_shotPrompt = enabled;
+}
+
+void MainWindow::setShotFind(const QString &query, bool wholeWord, bool caseSensitive)
+{
+    m_shotFind = query;
+    m_shotFindWhole = wholeWord;
+    m_shotFindCase = caseSensitive;
 }
 
 void MainWindow::setScrollCheck(bool enabled)
@@ -628,7 +811,7 @@ void MainWindow::updateFilterIndicator()
         return;
     }
     m_statusFilter->setText(QStringLiteral("筛选 %1").arg(parts.join(QStringLiteral(" + "))));
-    m_statusFilter->setToolTip(QStringLiteral("当前筛选条件，Ctrl+F 修改 / Ctrl+Shift+F 清除"));
+    m_statusFilter->setToolTip(QStringLiteral("当前筛选条件，Ctrl+Shift+F 修改 / Ctrl+Alt+F 清除"));
     m_statusFilter->show();
 }
 

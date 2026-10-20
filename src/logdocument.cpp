@@ -90,6 +90,62 @@ int firstGroup(const RegexEngine &eng, std::initializer_list<const char *> names
     return -1;
 }
 
+// 一次搜索最多记这么多处命中（12 字节/条，约 12 MB）。超过就截断并提示。
+constexpr int kMaxSearchHits = 1000000;
+
+inline bool isWordByte(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+        || c == '_';
+}
+
+// 在 hay[from, len) 里找 needle 的下一处出现，返回整行内的字节偏移（找不到 -1）。
+// headWord / tailWord 表示 needle 的首 / 末字节是词字符——只有这种情况才检查那一侧的
+// 边界，所以中文关键词（多字节 UTF-8，首字节 >= 0x80）不会被英文词边界误伤。
+int findHit(const char *hay, int len, int from, const char *nd, int n,
+            bool caseSensitive, bool wholeWord, bool headWord, bool tailWord)
+{
+    if (n <= 0 || n > len)
+        return -1;
+
+    int i = from;
+    while (i + n <= len) {
+        if (caseSensitive) {
+            // 首字节用 memchr 快速跳过，命中后再整体比对
+            const char *found = static_cast<const char *>(
+                std::memchr(hay + i, nd[0], size_t(len - n + 1 - i)));
+            if (!found)
+                return -1;
+            i = int(found - hay);
+            if (n > 1 && std::memcmp(hay + i + 1, nd + 1, size_t(n - 1)) != 0) {
+                ++i;
+                continue;
+            }
+        } else {
+            int k = 0;
+            while (k < n && lowerAscii(hay[i + k]) == nd[k])
+                ++k;
+            if (k != n) {
+                ++i;
+                continue;
+            }
+        }
+
+        if (wholeWord) {
+            if (headWord && i > 0 && isWordByte(hay[i - 1])) {
+                ++i;
+                continue;
+            }
+            if (tailWord && i + n < len && isWordByte(hay[i + n])) {
+                ++i;
+                continue;
+            }
+        }
+        return i;
+    }
+    return -1;
+}
+
 } // namespace
 
 LogDocument::LogDocument(QObject *parent)
@@ -110,14 +166,29 @@ void LogDocument::cancelWorkers()
 {
     m_cancelLoad = true;
     m_cancelFilter = true;
+    m_cancelSearch = true;
     if (m_loadThread.joinable())
         m_loadThread.join();
     if (m_filterThread.joinable())
         m_filterThread.join();
+    if (m_searchThread.joinable())
+        m_searchThread.join();
     m_cancelLoad = false;
     m_cancelFilter = false;
+    m_cancelSearch = false;
     m_loading = false;
     m_filtering = false;
+    m_searching = false;
+}
+
+void LogDocument::cancelSearch()
+{
+    ++m_searchGeneration; // 正在跑的那一次会因为代次不等而提前退出
+    m_cancelSearch = true;
+    if (m_searchThread.joinable())
+        m_searchThread.join();
+    m_cancelSearch = false;
+    m_searching = false;
 }
 
 void LogDocument::openFile(const QString &path, TextEncoding encoding)
@@ -128,6 +199,12 @@ void LogDocument::openFile(const QString &path, TextEncoding encoding)
     m_encoding = encoding;
     m_loading = true;
     m_filtering = false;
+
+    // 旧文件的命中位置对新文件没有意义，先作废（条件保留，加载完自动重跑）
+    if (m_hits) {
+        m_hits.reset();
+        emit searchChanged();
+    }
 
     emit loadStarted(path);
 
@@ -151,6 +228,13 @@ void LogDocument::closeFile()
     m_data.reset();
     m_visible.reset();
     m_path.clear();
+
+    m_searchText.clear();
+    m_searchTruncated = false;
+    if (m_hits) {
+        m_hits.reset();
+        emit searchChanged();
+    }
     emit filterChanged();
 }
 
@@ -168,6 +252,7 @@ void LogDocument::applyFilter(const FilterSpec &spec)
     if (!m_data) {
         m_visible.reset();
         emit filterChanged();
+        refreshSearch();
         return;
     }
 
@@ -184,6 +269,7 @@ void LogDocument::applyFilter(const FilterSpec &spec)
         m_filtering = false;
         m_filterSeconds = 0.0;
         emit filterChanged();
+        refreshSearch();
         return;
     }
 
@@ -192,8 +278,139 @@ void LogDocument::applyFilter(const FilterSpec &spec)
     m_filterThread = std::thread([this, gen, data, spec]() { runFilter(gen, data, spec); });
 }
 
-void LogDocument::publishLoadFailure(quint64 generation, const QString &message)
+// ---------------------------------------------------------------------------
+// 查找
+// ---------------------------------------------------------------------------
+void LogDocument::setSearchQuery(const QString &needle, bool caseSensitive, bool wholeWord)
 {
+    m_searchText = needle;
+    m_searchCase = caseSensitive;
+    m_searchWord = wholeWord;
+
+    cancelSearch();
+
+    if (needle.isEmpty()) {
+        m_searchTruncated = false;
+        m_searchSeconds = 0.0;
+        if (m_hits) {
+            m_hits.reset();
+            emit searchChanged();
+        }
+        return;
+    }
+
+    if (!m_data) {
+        m_searching = false;
+        emit searchChanged();
+        return;
+    }
+
+    const quint64 gen = ++m_searchGeneration;
+    m_searching = true;
+    m_searchTruncated = false;
+
+    auto data = m_data;
+    auto visible = m_visible;
+    const QByteArray bytes = needle.toUtf8();
+    m_searchThread = std::thread([this, gen, data, visible, bytes, caseSensitive, wholeWord]() {
+        runSearch(gen, data, visible, bytes, caseSensitive, wholeWord);
+    });
+}
+
+void LogDocument::refreshSearch()
+{
+    if (m_searchText.isEmpty() || m_searchPendingRefresh)
+        return;
+    // 同一轮事件里可能连着触发多次（加载完成 + 重新应用筛选），合并成一次
+    m_searchPendingRefresh = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            m_searchPendingRefresh = false;
+            if (m_searchText.isEmpty())
+                return;
+            setSearchQuery(m_searchText, m_searchCase, m_searchWord);
+        },
+        Qt::QueuedConnection);
+}
+
+void LogDocument::runSearch(quint64 generation, std::shared_ptr<LogData> data,
+                            std::shared_ptr<const std::vector<quint32>> visible,
+                            QByteArray needle, bool caseSensitive, bool wholeWord)
+{
+    QElapsedTimer timer;
+    timer.start();
+
+    // 大小写不敏感时把 needle 折叠成小写，逐字节比较时只折叠正文一侧
+    if (!caseSensitive)
+        needle = needle.toLower();
+
+    const int n = int(needle.size());
+    const bool headWord = wholeWord && n > 0 && isWordByte(needle.at(0));
+    const bool tailWord = wholeWord && n > 0 && isWordByte(needle.at(n - 1));
+
+    auto hits = std::make_shared<QVector<SearchHit>>();
+    bool truncated = false;
+
+    const int totalLines = int(data->lineStart.size());
+    const int rows = visible ? int(visible->size()) : totalLines;
+    hits->reserve(qMin(rows, 2048));
+
+    for (int r = 0; r < rows && !truncated; ++r) {
+        if ((r & 0x3FFF) == 0) {
+            if (m_cancelSearch.load() || generation != m_searchGeneration.load())
+                return;
+        }
+
+        const int line = visible ? int((*visible)[size_t(r)]) : r;
+        quint64 s = data->lineStart[size_t(line)];
+        quint64 e = (line + 1 < totalLines) ? data->lineStart[size_t(line + 1)]
+                                            : quint64(data->utf8Size);
+        while (e > s && (data->utf8[e - 1] == '\n' || data->utf8[e - 1] == '\r'))
+            --e;
+        const int len = int(e - s);
+        if (len < n)
+            continue;
+
+        const char *p = data->utf8 + s;
+        int from = 0;
+        while (from + n <= len) {
+            const int pos = findHit(p, len, from, needle.constData(), n, caseSensitive,
+                                    wholeWord, headWord, tailWord);
+            if (pos < 0)
+                break;
+
+            SearchHit h;
+            h.row = quint32(r);
+            h.startByte = quint32(pos);
+            h.endByte = quint32(pos + n);
+            hits->append(h);
+
+            if (hits->size() >= kMaxSearchHits) {
+                truncated = true;
+                break;
+            }
+            from = pos + n; // 命中区间不重叠
+        }
+    }
+
+    const double sec = double(timer.elapsed()) / 1000.0;
+
+    QMetaObject::invokeMethod(
+        this,
+        [this, generation, hits, truncated, sec]() {
+            if (generation != m_searchGeneration.load())
+                return;
+            m_hits = hits;
+            m_searching = false;
+            m_searchTruncated = truncated;
+            m_searchSeconds = sec;
+            emit searchChanged();
+        },
+        Qt::QueuedConnection);
+}
+
+void LogDocument::publishLoadFailure(quint64 generation, const QString &message){
     QMetaObject::invokeMethod(
         this,
         [this, generation, message]() {
@@ -466,6 +683,7 @@ void LogDocument::runLoad(quint64 generation, QString path, TextEncoding encodin
             emit loadProgress(100, QStringLiteral("完成"));
             emit filterChanged();
             emit loadFinished(true, QString());
+            refreshSearch();
         },
         Qt::QueuedConnection);
 }
@@ -532,6 +750,7 @@ void LogDocument::runFilter(quint64 generation, std::shared_ptr<LogData> data, F
             m_filtering = false;
             m_filterSeconds = sec;
             emit filterChanged();
+            refreshSearch();
         },
         Qt::QueuedConnection);
 }

@@ -270,6 +270,10 @@ static Theme buildTheme(bool dark)
         t.selText    = QColor(0xe8, 0xee, 0xf6);
         t.matchBg    = QColor(0x5c, 0x4a, 0x00);
         t.matchText  = QColor(0xff, 0xf1, 0xa8);
+        t.searchBg   = QColor(0x1b, 0x3c, 0x63);
+        t.searchText = QColor(0xd6, 0xe8, 0xff);
+        t.activeMatchBg   = QColor(0xff, 0x9b, 0x2e);
+        t.activeMatchText = QColor(0x2b, 0x15, 0x00);
         t.tagTime    = QColor(0x6c, 0x8c, 0xa8);
     } else {
         t.text       = QColor(0x1f, 0x23, 0x28);
@@ -284,6 +288,10 @@ static Theme buildTheme(bool dark)
         t.selText    = QColor(0x0f, 0x1b, 0x2b);
         t.matchBg    = QColor(0xff, 0xe8, 0x8a);
         t.matchText  = QColor(0x4a, 0x35, 0x00);
+        t.searchBg   = QColor(0xcf, 0xe6, 0xff);
+        t.searchText = QColor(0x0a, 0x2c, 0x55);
+        t.activeMatchBg   = QColor(0xff, 0x9b, 0x2e);
+        t.activeMatchText = QColor(0x2b, 0x15, 0x00);
         t.tagTime    = QColor(0x6f, 0x8b, 0xa6);
     }
     t.bgAlt.setAlpha(255);

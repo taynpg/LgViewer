@@ -328,6 +328,39 @@ void drawAbout(QPainter *p, const QColor &c)
     p->drawEllipse(QPointF(12, 7.8), 1.15, 1.15);
 }
 
+void drawFind(QPainter *p, const QColor &c)
+{
+    // 与放大镜同形，但不带 +/-，专用于“查找”
+    drawZoomLens(p, c);
+}
+
+void drawArrowUp(QPainter *p, const QColor &c)
+{
+    setPen(p, c, 2.4);
+    QPainterPath path;
+    path.moveTo(6, 15.5);
+    path.lineTo(12, 8.5);
+    path.lineTo(18, 15.5);
+    p->drawPath(path);
+}
+
+void drawArrowDown(QPainter *p, const QColor &c)
+{
+    setPen(p, c, 2.4);
+    QPainterPath path;
+    path.moveTo(6, 8.5);
+    path.lineTo(12, 15.5);
+    path.lineTo(18, 8.5);
+    p->drawPath(path);
+}
+
+void drawCloseMark(QPainter *p, const QColor &c)
+{
+    setPen(p, c, 2.2);
+    p->drawLine(QPointF(6.8, 6.8), QPointF(17.2, 17.2));
+    p->drawLine(QPointF(17.2, 6.8), QPointF(6.8, 17.2));
+}
+
 QPixmap renderPixmap(Icon id, int px)
 {
     const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
@@ -373,6 +406,10 @@ void paintGlyph(Icon id, QPainter *painter, const QColor &color, int px)
     case Icon::EditProfile:   drawEditProfile(painter, color); break;
     case Icon::DeleteProfile: drawDeleteProfile(painter, color); break;
     case Icon::About:         drawAbout(painter, color); break;
+    case Icon::Find:          drawFind(painter, color); break;
+    case Icon::ArrowUp:       drawArrowUp(painter, color); break;
+    case Icon::ArrowDown:     drawArrowDown(painter, color); break;
+    case Icon::CloseMark:     drawCloseMark(painter, color); break;
     }
     painter->restore();
 }

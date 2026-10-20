@@ -32,6 +32,10 @@ enum class Icon {
     EditProfile,   // 编辑配置（铅笔）
     DeleteProfile, // 删除配置（垃圾桶）
     About,         // 关于（i 圆圈）
+    Find,          // 查找（放大镜）
+    ArrowUp,       // 上一个命中（向上折线）
+    ArrowDown,     // 下一个命中（向下折线）
+    CloseMark,     // 关闭（×）
 };
 
 QIcon icon(Icon id);

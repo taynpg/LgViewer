@@ -5,8 +5,11 @@
 #include <QMainWindow>
 #include <QVector>
 
+#include <memory>
+
 class LogView;
 class FilterDialog;
+class FindBar;
 class QComboBox;
 class QLabel;
 class QProgressBar;
@@ -30,6 +33,7 @@ public:
     void setBenchMode(bool enabled);
     void setShotFilterDialog(bool enabled);
     void setShotPromptDialog(bool enabled);
+    void setShotFind(const QString &query, bool wholeWord, bool caseSensitive);
     void setScrollCheck(bool enabled);
 
 protected:
@@ -56,6 +60,15 @@ private:
     void showFilterDialog(const QString &focus = QString());
     void clearFilters();
 
+    // 查找
+    void showFind();
+    void closeFind();
+    void runSearch();
+    void onSearchChanged();
+    void findNext();
+    void findPrev();
+    void gotoHit(int index, bool scroll);
+
     void changeEncoding(int comboIndex);
     void editProfile();
     void newProfile();
@@ -69,6 +82,7 @@ private:
     LogDocument  *m_doc = nullptr;
     LogView      *m_view = nullptr;
     FilterDialog *m_filterDlg = nullptr;
+    FindBar      *m_findBar = nullptr;
     QComboBox    *m_profileCombo = nullptr;
     QComboBox    *m_encodingCombo = nullptr;
     QLabel       *m_statusFile = nullptr;
@@ -78,6 +92,10 @@ private:
     QProgressBar *m_progress = nullptr;
 
     FilterSpec m_activeSpec;
+
+    // 搜索命中缓存（与 LogDocument 共享同一份，跳转时不再拷贝）
+    std::shared_ptr<const QVector<SearchHit>> m_hits;
+    int m_hitIndex = -1;
 
     // 重新解析（切换配置 / 重载 / 换编码）时保持视口位置
     int  m_restoreLine = -1;
@@ -91,6 +109,9 @@ private:
     QString m_shotPath;
     bool    m_shotFilter = false;
     bool    m_shotPrompt = false;
+    QString m_shotFind;
+    bool    m_shotFindWhole = false;
+    bool    m_shotFindCase = false;
     bool    m_scrollCheck = false;
     bool    m_bench = false;
     bool    m_benchFilter = false;
