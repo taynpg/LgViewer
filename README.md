@@ -53,6 +53,31 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build && ./build/bin/LgViewer
 ```
 
+### 一键构建 + 打包 Windows 安装包
+
+```bash
+python tools/PackBuild.py                                      # 交互式
+python tools/PackBuild.py --mark=release --clean --pack --yes   # 无人值守
+```
+
+依赖：MSYS2 UCRT64（Qt6 / PCRE2 / cmake / ninja）、`windeployqt`（随 Qt 提供）、
+`clangPack`（可选，用于补齐 libstdc++ / libpcre2 等非 Qt 运行库）、[NSIS 3.x](https://nsis.sourceforge.io/)。
+
+流程：cmake + ninja 构建 → `windeployqt` 部署 Qt → `clangPack` 补运行库 → 拷贝
+`LICENSE` / `LICENSES/` → `makensis` 生成安装包。
+
+| 产物 | 路径 |
+|---|---|
+| 免安装目录（可直接压缩分发） | `build-<mark>/bin/` |
+| 安装包 | `build-<mark>/LgViewer-setup-x64-v<版本>-<mark>-<commit>.exe` |
+
+安装包按用户级安装（不弹 UAC），默认装到 `%USERPROFILE%\LgViewer`，带桌面 / 开始菜单快捷方式
+与「应用和功能」卸载项。版本号取自 `CMakeLists.txt` 的 `project(... VERSION ...)`，dev 构建
+自动加 `-dev` 后缀（可用 `LgViewer.exe --version` 查看）。
+
+可用环境变量覆盖默认工具位置：`QT_LIB_ROOT`（默认 `C:\msys64\ucrt64`）、`NSIS_HOME`、
+`CLANG_PACK`。
+
 ## 使用速查
 
 | 操作 | 快捷键 |

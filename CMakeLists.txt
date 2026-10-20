@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
 project(LgViewer VERSION 0.1.0 LANGUAGES CXX)
 
+# 构建标记：dev / release（打包脚本通过 -DLG_BUILD_MARK= 传入）
+set(LG_BUILD_MARK "dev" CACHE STRING "Build mark: dev or release")
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -87,6 +90,12 @@ else()
 endif()
 
 target_include_directories(LgViewer PRIVATE src)
+
+# 版本号 + 构建标记，供「关于」与标题栏使用
+target_compile_definitions(LgViewer PRIVATE
+    LG_VERSION="${PROJECT_VERSION}"
+    LG_BUILD_MARK="${LG_BUILD_MARK}"
+)
 
 target_link_libraries(LgViewer PRIVATE
     Qt6::Core

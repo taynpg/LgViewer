@@ -10,12 +10,31 @@
 #include <QStyleFactory>
 #include <QTimer>
 
+#include <cstdio>
+
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("LgViewer"));
     QCoreApplication::setApplicationName(QStringLiteral("LgViewer"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+
+    // 版本号由 CMake 注入；dev 构建在版本号后加 -dev，便于区分本地调试包
+#ifdef LG_VERSION
+    QString appVersion = QStringLiteral(LG_VERSION);
+#else
+    QString appVersion = QStringLiteral("0.1.0");
+#endif
+#ifdef LG_BUILD_MARK
+    if (qstrcmp(LG_BUILD_MARK, "release") != 0)
+        appVersion += QStringLiteral("-") + QStringLiteral(LG_BUILD_MARK);
+#endif
+    QCoreApplication::setApplicationVersion(appVersion);
+
+    // --version：打印版本后退出（打包脚本 / CI 用）
+    if (app.arguments().contains(QStringLiteral("--version"))) {
+        std::printf("%s\n", qPrintable(appVersion));
+        return 0;
+    }
 
     // 任务栏 / 窗口图标
     app.setWindowIcon(QIcon(QStringLiteral(":/app/app_icon.png")));
