@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/app">
+        <file>app_icon.png</file>
+    </qresource>
+    <qresource prefix="/licenses">
+        <file alias="LGPL-3.0-only.txt">../LICENSES/LGPL-3.0-only.txt</file>
+        <file alias="PCRE2-BSD-3-Clause.txt">../LICENSES/PCRE2-BSD-3-Clause.txt</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,4 @@
+// Windows 资源：exe 图标 + 版本信息
+#include <windows.h>
+
+IDI_ICON1 ICON DISCARDABLE "app_icon.ico"

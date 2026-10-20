@@ -1,0 +1,36 @@
+# ---- 构建产物 ----
+build/
+build-*/
+out/
+cmake-build-*/
+
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.a
+
+# ---- 测试数据（用 testdata/gen.py 重新生成）----
+testdata/*.log
+testdata/*.txt
+testdata/*.png
+!testdata/gen.py
+
+# 生成的图标预览
+tests/*.png
+
+# ---- IDE / 编辑器 ----
+.vscode/
+.idea/
+*.user
+*.autosave
+.directory
+
+# ---- 工具运行时数据（不进仓库）----
+.workbuddy/
+patterns.json
+
+# ---- 系统杂项 ----
+Thumbs.db
+.DS_Store
