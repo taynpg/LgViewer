@@ -184,7 +184,11 @@ def build(qt_root: str, mark: str, do_clean: bool) -> Path:
     if do_clean and build_dir.exists():
         print(f"[build] 删除已有构建目录: {build_dir}")
         if not DRY_RUN:
-            shutil.rmtree(build_dir)
+            try:
+                shutil.rmtree(build_dir)
+            except OSError as exc:
+                die(f"删除构建目录失败: {exc}\n"
+                    f"[HINT] 先关闭正在运行的 LgViewer / 资源管理器窗口，或手工删除 {build_dir}")
     if not DRY_RUN:
         build_dir.mkdir(parents=True, exist_ok=True)
 
